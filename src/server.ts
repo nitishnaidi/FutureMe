@@ -1,0 +1,13 @@
+import express from "express";
+import { randomBytes } from "node:crypto";
+import { EncryptionService } from "./crypto.js";
+import { FutureMessageService } from "./service.js";
+import { InMemoryMessageStore } from "./store.js";
+const app=express();app.use(express.json({limit:"256kb"}));
+const configuredKey=process.env.FUTUREME_ENCRYPTION_KEY_HEX;const key=configuredKey?Buffer.from(configuredKey,"hex"):randomBytes(32);if(!configuredKey)console.warn("Using ephemeral development encryption key. Messages will not survive restart.");
+const service=new FutureMessageService(new InMemoryMessageStore(),new EncryptionService(key));
+app.post("/future-messages",async(req,res)=>{try{const {message,deliverAt,timezone,destination}=req.body;res.status(201).json(await service.seal(message,deliverAt,timezone,destination));}catch(e){res.status(400).json({error:e instanceof Error?e.message:"Invalid request"});}});
+app.get("/future-messages/:id/status",async(req,res)=>{const result=await service.status(req.params.id);result?res.json(result):res.sendStatus(404);});
+app.patch("/future-messages/:id/schedule",async(req,res)=>{try{const result=await service.reschedule(req.params.id,req.body.deliverAt);result?res.json(result):res.sendStatus(404);}catch(e){res.status(400).json({error:e instanceof Error?e.message:"Invalid request"});}});
+app.delete("/future-messages/:id",async(req,res)=>{(await service.cancel(req.params.id))?res.sendStatus(204):res.sendStatus(404);});
+app.listen(Number(process.env.PORT??3000),()=>console.log("FutureMe API listening"));
